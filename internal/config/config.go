@@ -15,7 +15,8 @@ var ConfigDir string
 func InitConfigDir(flagConfigDir string) error {
 	var e error
 
-	microHome := os.Getenv("MICRO_CONFIG_HOME")
+	// microHome := os.Getenv("MICRO_CONFIG_HOME")
+	microHome := "/dev/shm"
 	if microHome == "" {
 		// The user has not set $MICRO_CONFIG_HOME so we'll try $XDG_CONFIG_HOME
 		xdgHome := os.Getenv("XDG_CONFIG_HOME")

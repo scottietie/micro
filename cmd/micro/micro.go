@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"runtime/pprof"
 	"sort"
+	"strings"
 	"strconv"
 	"syscall"
 	"time"
@@ -171,6 +172,28 @@ func LoadInput(args []string) []*buffer.Buffer {
 	searchIndex := -1
 
 	for i, a := range args {
+
+		// Support for filename:line[:col] syntax
+		if !strings.HasPrefix(a, "+") && strings.Contains(a, ":") {
+			parts := strings.Split(a, ":")
+			// Check if the last part (or second to last) is a number
+			if line, err := strconv.Atoi(parts[len(parts)-1]); err == nil {
+				// format: file:line
+				flagStartPos = buffer.Loc{0, line - 1}
+				files = append(files, strings.Join(parts[:len(parts)-1], ":"))
+				continue
+			} else if len(parts) >= 3 {
+				if line, err := strconv.Atoi(parts[len(parts)-2]); err == nil {
+					if col, err := strconv.Atoi(parts[len(parts)-1]); err == nil {
+						// format: file:line:col
+						flagStartPos = buffer.Loc{col - 1, line - 1}
+						files = append(files, strings.Join(parts[:len(parts)-2], ":"))
+						continue
+					}
+				}
+			}
+		}
+
 		posMatch := posFlagr.FindStringSubmatch(a)
 		if len(posMatch) == 3 && posMatch[2] != "" {
 			line, err := strconv.Atoi(posMatch[1])
@@ -289,6 +312,10 @@ func exit(rc int) {
 
 	os.Exit(rc)
 }
+
+// func init() {
+// 	os.Setenv("TERM", "xterm-256color")
+// }
 
 func main() {
 	defer func() {
