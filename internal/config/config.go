@@ -4,8 +4,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-
-	homedir "github.com/mitchellh/go-homedir"
 )
 
 var ConfigDir string
@@ -15,22 +13,10 @@ var ConfigDir string
 func InitConfigDir(flagConfigDir string) error {
 	var e error
 
-	// microHome := os.Getenv("MICRO_CONFIG_HOME")
-	microHome := "/dev/shm"
-	if microHome == "" {
-		// The user has not set $MICRO_CONFIG_HOME so we'll try $XDG_CONFIG_HOME
-		xdgHome := os.Getenv("XDG_CONFIG_HOME")
-		if xdgHome == "" {
-			// The user has not set $XDG_CONFIG_HOME so we should act like it was set to ~/.config
-			home, err := homedir.Dir()
-			if err != nil {
-				return errors.New("Error finding your home directory\nCan't load config files: " + err.Error())
-			}
-			xdgHome = filepath.Join(home, ".config")
-		}
+	user := os.Getenv("USER")
+	// Set micro home to /dev/shm/$USER/micro/
+	microHome := filepath.Join("/dev/shm", user, "micro")
 
-		microHome = filepath.Join(xdgHome, "micro")
-	}
 	ConfigDir = microHome
 
 	if len(flagConfigDir) > 0 {
