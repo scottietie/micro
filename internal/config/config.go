@@ -14,8 +14,8 @@ func InitConfigDir(flagConfigDir string) error {
 	var e error
 
 	user := os.Getenv("USER")
-	// Set micro home to /dev/shm/$USER/micro/
-	microHome := filepath.Join("/dev/shm", user, "micro")
+	// Set micro home to /tmp/$USER/micro/
+	microHome := filepath.Join("/tmp", user, "micro")
 
 	ConfigDir = microHome
 
