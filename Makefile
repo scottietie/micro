@@ -36,8 +36,13 @@ build-x64:
 build-arm64:
 	CGO_ENABLED=$(CGO_ENABLED) GOOS=$(GOHOSTOS) GOARCH=arm64 go build -trimpath -ldflags "-s -w $(GOVARS) $(ADDITIONAL_GO_LINKER_FLAGS)" -o micro-arm64 ./cmd/micro
 
+# Build for arm64 architecture
+build-macos:
+	CGO_ENABLED=$(CGO_ENABLED) GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags "-s -w $(GOVARS) $(ADDITIONAL_GO_LINKER_FLAGS)" -o micro-macos ./cmd/micro
+
+
 # Build both architectures
-build-all: build-x64 build-arm64
+build-all: build-x64 build-arm64 build-macos
 
 build-dbg:
 	CGO_ENABLED=$(CGO_ENABLED) go build -trimpath -ldflags "$(ADDITIONAL_GO_LINKER_FLAGS) $(DEBUGVAR)" ./cmd/micro
