@@ -36,13 +36,17 @@ build-x64:
 build-arm64:
 	CGO_ENABLED=$(CGO_ENABLED) GOOS=$(GOHOSTOS) GOARCH=arm64 go build -trimpath -ldflags "-s -w $(GOVARS) $(ADDITIONAL_GO_LINKER_FLAGS)" -o micro-arm64 ./cmd/micro
 
+# Build for arm32 architecture
+build-arm32:
+	CGO_ENABLED=$(CGO_ENABLED) GOOS=$(GOHOSTOS) GOARCH=arm go build -trimpath -ldflags "-s -w $(GOVARS) $(ADDITIONAL_GO_LINKER_FLAGS)" -o micro-arm32 ./cmd/micro
+
 # Build for arm64 architecture
 build-macos:
 	CGO_ENABLED=$(CGO_ENABLED) GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags "-s -w $(GOVARS) $(ADDITIONAL_GO_LINKER_FLAGS)" -o micro-macos ./cmd/micro
 
 
 # Build both architectures
-build-all: build-x64 build-arm64 build-macos
+build-all: build-x64 build-arm64 build-macos build-arm32
 
 build-dbg:
 	CGO_ENABLED=$(CGO_ENABLED) go build -trimpath -ldflags "$(ADDITIONAL_GO_LINKER_FLAGS) $(DEBUGVAR)" ./cmd/micro
@@ -91,4 +95,4 @@ bench-compare:
 	benchstat -alpha 0.15 benchmark_results_baseline benchmark_results
 
 clean:
-	rm -f micro micro-x64 micro-arm64
+	rm -f micro micro-x64 micro-arm64 micro-arm32 micro-macos
