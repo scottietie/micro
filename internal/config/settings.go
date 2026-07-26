@@ -442,12 +442,7 @@ func defaultFileFormat() string {
 }
 
 func defaultFakeCursor() bool {
-	_, wt := os.LookupEnv("WT_SESSION")
-	if runtime.GOOS == "windows" && !wt {
-		// enabled for windows consoles where the cursor is slow
-		return true
-	}
-	return false
+	return true
 }
 
 func GetInfoBarOffset() int {
