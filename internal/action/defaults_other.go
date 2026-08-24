@@ -41,6 +41,9 @@ var bufdefaults = map[string]string{
     "\u001b[OC":      "SelectRight",   // VT100 Application Mode
     "\u001b[OD":      "SelectLeft",    // VT100 Application Mode
 
+    // Hard-coded Shift+Tab (untab) for terminals that don't emit the Backtab sequence
+    "\u001b[Z":       "CycleAutocompleteBack|OutdentSelection|OutdentLine", // Shift+Tab => no autocomplete: untab selection/line
+
     // for terminal that does not support modifier, mapping some most-useful functions
     "Ctrl-l":         "SelectRight",
     "Ctrl-j":         "SelectLeft",
