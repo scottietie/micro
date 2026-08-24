@@ -98,6 +98,7 @@ var bufdefaults = map[string]string{
     // "Ctrl-d":         "Duplicate|DuplicateLine",
     "Ctrl-v":         "Paste",
     "Ctrl-a":         "SelectAll",
+    "CtrlUnderscore": "lua:comment.comment", // Ctrl+/ => toggle comment on selection / current line
     "Ctrl-t":         "AddTab",
     "Alt-,":          "PreviousTab|LastTab",
     "Alt-.":          "NextTab|FirstTab",
