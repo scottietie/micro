@@ -30,19 +30,19 @@ build-quick:
 
 # Build for x64 (amd64) architecture
 build-x64:
-	CGO_ENABLED=$(CGO_ENABLED) GOOS=$(GOHOSTOS) GOARCH=amd64 go build -trimpath -ldflags "-s -w $(GOVARS) $(ADDITIONAL_GO_LINKER_FLAGS)" -o micro-x64 ./cmd/micro
+	CGO_ENABLED=$(CGO_ENABLED) GOOS=$(GOHOSTOS) GOARCH=amd64 go build -trimpath -ldflags "-s -w $(GOVARS) $(ADDITIONAL_GO_LINKER_FLAGS)" -o et.x86_64l ./cmd/micro
 
 # Build for arm64 architecture
 build-arm64:
-	CGO_ENABLED=$(CGO_ENABLED) GOOS=$(GOHOSTOS) GOARCH=arm64 go build -trimpath -ldflags "-s -w $(GOVARS) $(ADDITIONAL_GO_LINKER_FLAGS)" -o micro-arm64 ./cmd/micro
+	CGO_ENABLED=$(CGO_ENABLED) GOOS=$(GOHOSTOS) GOARCH=arm64 go build -trimpath -ldflags "-s -w $(GOVARS) $(ADDITIONAL_GO_LINKER_FLAGS)" -o et.arm64l ./cmd/micro
 
 # Build for arm32 architecture
 build-arm32:
-	CGO_ENABLED=$(CGO_ENABLED) GOOS=$(GOHOSTOS) GOARCH=arm go build -trimpath -ldflags "-s -w $(GOVARS) $(ADDITIONAL_GO_LINKER_FLAGS)" -o micro-arm32 ./cmd/micro
+	CGO_ENABLED=$(CGO_ENABLED) GOOS=$(GOHOSTOS) GOARCH=arm go build -trimpath -ldflags "-s -w $(GOVARS) $(ADDITIONAL_GO_LINKER_FLAGS)" -o et.arm32l ./cmd/micro
 
 # Build for arm64 architecture
 build-macos:
-	CGO_ENABLED=$(CGO_ENABLED) GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags "-s -w $(GOVARS) $(ADDITIONAL_GO_LINKER_FLAGS)" -o micro-macos ./cmd/micro
+	CGO_ENABLED=$(CGO_ENABLED) GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags "-s -w $(GOVARS) $(ADDITIONAL_GO_LINKER_FLAGS)" -o et.arm64m ./cmd/micro
 
 
 # Build both architectures
@@ -95,4 +95,4 @@ bench-compare:
 	benchstat -alpha 0.15 benchmark_results_baseline benchmark_results
 
 clean:
-	rm -f micro micro-x64 micro-arm64 micro-arm32 micro-macos
+	rm -f micro et.arm32l et.arm64l et.arm64m et.x86_64l
