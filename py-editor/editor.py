@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import curses
 import os
+import re
 import subprocess
 import sys
 import unicodedata
@@ -42,49 +43,91 @@ def pad_by_width(s: str, target_w: int) -> str:
     return s_cut + (" " * rem)
 
 
+def _decode_bytes(data: bytes) -> tuple[str, str]:
+    """安全解碼位元組，回傳 (文字, 使用的編碼)。不會因非 UTF-8 / 無效位元組崩潰。"""
+    for enc in ("utf-8-sig", "utf-8", "latin-1"):
+        try:
+            text = data.decode(enc)
+            # utf-8-sig 會剝除 BOM；回存時一律用 utf-8
+            return text, ("utf-8" if enc != "latin-1" else "latin-1")
+        except UnicodeDecodeError:
+            continue
+    # latin-1 永不失敗，當作最後手段
+    return data.decode("latin-1"), "latin-1"
+
+
+def _detect_line_data(text: str) -> tuple[str, bool]:
+    """偵測換行樣式，回傳 (ending, trailing_newline)。"""
+    if "\r\n" in text:
+        ending = "\r\n"
+    elif "\r" in text:
+        ending = "\r"
+    else:
+        ending = "\n"
+    return ending, text.endswith(("\n", "\r"))
+
+
 # ==============================================================
 # 1. 結構化按鍵映射字典
 # ==============================================================
 
 DEFAULT_KEYMAP = {
-    # 檔案與系統操作
-    "ctrl+s": "action_save",
+    # ── 游標移動 (micro: CursorUp/Down/Left/Right, StartOfTextToggle, EndOfLine) ──
+    "up": "action_move_up",
+    "down": "action_move_down",
+    "left": "action_move_left",
+    "right": "action_move_right",
+    "home": "action_move_home",                # StartOfTextToggle
+    "end": "action_move_end",                  # EndOfLine
+    "ctrl+home": "action_goto_first_line",     # CursorStart
+    "ctrl+end": "action_goto_last_line",       # CursorEnd
+    "page_up": "action_page_up",              # CursorPageUp
+    "page_down": "action_page_down",          # CursorPageDown
+    # ── 選取 (micro: Select*) ──
+    "shift+up": "action_select_up",
+    "shift+down": "action_select_down",
+    "shift+left": "action_select_left",
+    "shift+right": "action_select_right",
+    "ctrl+l": "action_select_right",           # fork 預設: Ctrl-l → SelectRight
+    "ctrl+j": "action_select_left",            # fork 預設: Ctrl-j → SelectLeft
+    "shift+home": "action_select_to_line_start",  # SelectToStartOfTextToggle
+    "shift+end": "action_select_to_line_end",      # SelectToEndOfLine
+    "shift+ctrl+home": "action_select_to_first_line",  # SelectToStart
+    "shift+ctrl+end": "action_select_to_last_line",    # SelectToEnd
+    "shift+page_up": "action_select_page_up",     # SelectPageUp
+    "shift+page_down": "action_select_page_down", # SelectPageDown
+    # 欄選取 (Alt+Shift+方向鍵) — py-editor 既有功能，micro 未綁定，保留不衝突
+    "alt+shift+up": "action_column_select_up",
+    "alt+shift+down": "action_column_select_down",
+    "alt+shift+left": "action_column_select_left",
+    "alt+shift+right": "action_column_select_right",
+    # ── 編輯 (micro) ──
+    "enter": "action_newline",            # InsertNewline
+    "backspace": "action_backspace",      # Backspace / OldBackspace
+    "delete": "action_delete",            # Delete
+    "tab": "action_indent",               # Autocomplete|IndentSelection|InsertTab (無 autocomplete → indent)
+    "shift+tab": "action_outdent",        # Backtab → OutdentSelection|OutdentLine
+    "ctrl+e": "action_delete_line",       # DeleteLine (fork 預設)
+    "ctrl+g": "action_jump_line",         # JumpLine (fork 預設)
+    # ── 檔案 / 系統 (micro) ──
     "ctrl+o": "action_open",
+    "ctrl+s": "action_save",
     "ctrl+q": "action_quit",
-    # 編輯與剪貼簿
-    "ctrl+a": "action_select_all",
-    "ctrl+e": "action_delete_line",
+    "ctrl+f": "action_find",             # Find
+    "ctrl+n": "action_find_next",        # FindNext (fork 預設)
+    "f3": "action_find_next",
+    "f4": "action_find_previous",
+    # ── 剪貼簿 / 復原 (micro: Copy|CopyLine, Cut|CutLine, Redo) ──
     "ctrl+z": "action_undo",
+    "ctrl+y": "action_redo",
     "ctrl+c": "action_copy",
     "ctrl+x": "action_cut",
     "ctrl+v": "action_paste",
+    "ctrl+a": "action_select_all",
+    # ── 其他 (micro) ──
+    "ctrl+/": "action_toggle_comment",   # CtrlUnderscore → comment.comment
+    "esc": "action_escape",              # Escape,Deselect,ClearInfo
     "bracketed_paste": "action_bracketed_paste",
-    # 游標移動 (方向鍵 & 頁面導航)
-    "left": "action_move_left",
-    "right": "action_move_right",
-    "up": "action_move_up",
-    "down": "action_move_down",
-    "home": "action_move_home",       # 【新增】跳至行頭
-    "end": "action_move_end",         # 【新增】跳至行尾
-    "ctrl+home": "action_goto_first_line",
-    "ctrl+end": "action_goto_last_line",
-    "shift+ctrl+home": "action_select_to_first_line",
-    "shift+ctrl+end": "action_select_to_last_line",
-    "page_up": "action_page_up",     # 【新增】上翻頁
-    "page_down": "action_page_down", # 【新增】下翻頁
-    # 文字選取 (Shift + 方向鍵)
-    "shift+left": "action_select_left",
-    "shift+right": "action_select_right",
-    "shift+up": "action_select_up",
-    "shift+down": "action_select_down",
-    # 欄選取 (Alt + Shift + 方向鍵) — Column / Rectangular selection
-    "alt+shift+left": "action_column_select_left",
-    "alt+shift+right": "action_column_select_right",
-    "alt+shift+up": "action_column_select_up",
-    "alt+shift+down": "action_column_select_down",
-    # 文字輸入控制
-    "enter": "action_newline",
-    "backspace": "action_backspace",
 }
 
 
@@ -98,11 +141,19 @@ class Editor:
         self.cursor_x = 0
         self.cursor_y = 0
         self.view_offset_y = 0
+        self.view_offset_x = 0
         self.should_quit = False
         self.selection_start: tuple[int, int] | None = None
         self.selection_end: tuple[int, int] | None = None
         self.clipboard = ""
         self.undo_stack: list[dict] = []
+        self.redo_stack: list[dict] = []
+        self.find_query = ""
+        self.find_direction = 1
+        self.home_state = 0
+        self.ending = "\n"
+        self.trailing_newline = False
+        self.file_encoding = "utf-8"
         self.column_selecting = False
         self.column_anchor: tuple[int, int] | None = None
 
@@ -120,20 +171,46 @@ class Editor:
         """動態比對當前內容與最後一次儲存的內容是否不一致"""
         return self.lines != self.saved_lines
 
+    def _lines_from_text(self, text: str, encoding: str) -> list[str]:
+        """把整份文字拆成內部行模型（每行不含換行符），並記錄換行樣式。"""
+        self.file_encoding = encoding
+        self.ending, self.trailing_newline = _detect_line_data(text)
+        body = text
+        if self.trailing_newline:
+            body = body[: -len(self.ending)]
+        lines = re.split(r"\r\n|\r|\n", body)
+        if not lines:
+            lines = [""]
+        return lines
+
+    def _read_file(self, path: str) -> list[str]:
+        """安全讀取檔案為內部行模型；非 UTF-8 / 二進位也不會崩潰。"""
+        with open(path, "rb") as f:
+            data = f.read()
+        text, encoding = _decode_bytes(data)
+        return self._lines_from_text(text, encoding)
+
+    def _write_file(self, path: str) -> None:
+        """依偵測到的換行樣式與結尾換行寫回檔案。"""
+        data = self.ending.join(self.lines)
+        if self.trailing_newline:
+            data += self.ending
+        with open(path, "wb") as f:
+            f.write(data.encode(self.file_encoding, errors="replace"))
+
     def _load_file(self) -> None:
         if self.filename and os.path.exists(self.filename):
-            with open(self.filename, "r", encoding="utf-8") as f:
-                self.lines = [line.rstrip("\n") for line in f.readlines()]
-            if not self.lines:
-                self.lines = [""]
+            self.lines = self._read_file(self.filename)
             self.status_message = f" 已載入檔案: {self.filename}"
         else:
             if self.filename:
                 self.status_message = f" 新檔案: {self.filename}"
             self.lines = [""]
 
+        self.view_offset_x = 0
         self.saved_lines = list(self.lines)
         self.undo_stack.clear()
+        self.redo_stack.clear()
 
     # ---------------- 系統剪貼簿 (xclip) 整合 ----------------
 
@@ -166,26 +243,49 @@ class Editor:
 
     # ---------------- Undo 復原邏輯 ----------------
 
-    def _save_snapshot(self) -> None:
-        state = {
+    def _current_state(self) -> dict:
+        return {
             "lines": list(self.lines),
             "cursor_x": self.cursor_x,
             "cursor_y": self.cursor_y,
         }
+
+    def _save_snapshot(self) -> None:
+        """記錄 undo 快照，並在進行新編輯時清空 redo 堆疊。"""
+        state = self._current_state()
         self.undo_stack.append(state)
         if len(self.undo_stack) > 100:
             self.undo_stack.pop(0)
+        self.redo_stack.clear()
+
+    def _apply_state(self, state: dict) -> None:
+        self.lines = state["lines"]
+        self.cursor_x = state["cursor_x"]
+        self.cursor_y = state["cursor_y"]
+        self._clear_selection()
+        self._clamp_cursor_x()
 
     def undo(self) -> None:
         if not self.undo_stack:
             self.status_message = " 已達最早狀態，無法復原！"
             return
         state = self.undo_stack.pop()
-        self.lines = state["lines"]
-        self.cursor_x = state["cursor_x"]
-        self.cursor_y = state["cursor_y"]
-        self._clear_selection()
+        self.redo_stack.append(self._current_state())
+        if len(self.redo_stack) > 100:
+            self.redo_stack.pop(0)
+        self._apply_state(state)
         self.status_message = " 已復原動作 (Undo)"
+
+    def redo(self) -> None:
+        if not self.redo_stack:
+            self.status_message = " 已達最新狀態，無法重做！"
+            return
+        state = self.redo_stack.pop()
+        self.undo_stack.append(self._current_state())
+        if len(self.undo_stack) > 100:
+            self.undo_stack.pop(0)
+        self._apply_state(state)
+        self.status_message = " 已重做動作 (Redo)"
 
     # ---------------- 選取與剪貼簿邏輯 ----------------
 
@@ -335,18 +435,16 @@ class Editor:
 
         if os.path.exists(target_file):
             try:
-                with open(target_file, "r", encoding="utf-8") as f:
-                    self.lines = [line.rstrip("\n") for line in f.readlines()]
-                if not self.lines:
-                    self.lines = [""]
-
+                self.lines = self._read_file(target_file)
                 self.filename = target_file
                 self.cursor_x = 0
                 self.cursor_y = 0
                 self.view_offset_y = 0
+                self.view_offset_x = 0
                 self._clear_selection()
                 self.saved_lines = list(self.lines)
                 self.undo_stack.clear()
+                self.redo_stack.clear()
                 self.status_message = f" 已成功開啟檔案: {target_file}"
                 return True
             except Exception as e:
@@ -368,8 +466,7 @@ class Editor:
                 self.filename = new_filename
 
         try:
-            with open(self.filename, "w", encoding="utf-8") as f:
-                f.write("\n".join(self.lines))
+            self._write_file(self.filename)
             self.saved_lines = list(self.lines)
             self.status_message = f" 已成功儲存至: {self.filename}"
             return True
@@ -473,11 +570,22 @@ class Editor:
                 stdscr.attroff(curses.color_pair(1))
                 stdscr.attroff(curses.color_pair(2))
 
-                # 2. 繪製內文
+                # 2. 繪製內文 (支援水平捲動 view_offset_x)
                 curr_col = 0
                 for c, ch in enumerate(line):
                     ch_w = str_width(ch)
-                    if curr_col + ch_w > text_width:
+                    # 右邊界: 超出可視寬度即停止
+                    if curr_col - self.view_offset_x >= text_width:
+                        break
+                    # 左邊界: 整字在視窗左側之外則跳過
+                    if curr_col + ch_w <= self.view_offset_x:
+                        curr_col += ch_w
+                        continue
+                    # 左邊界: 全形字跨過左緣無法顯示一半，跳過
+                    if curr_col < self.view_offset_x < curr_col + ch_w:
+                        curr_col += ch_w
+                        continue
+                    if curr_col - self.view_offset_x + ch_w > text_width:
                         break
 
                     is_selected = False
@@ -504,7 +612,12 @@ class Editor:
                         attr = curses.A_NORMAL
 
                     try:
-                        stdscr.addstr(i, self.GUTTER_WIDTH + curr_col, ch, attr)
+                        stdscr.addstr(
+                            i,
+                            self.GUTTER_WIDTH + (curr_col - self.view_offset_x),
+                            ch,
+                            attr,
+                        )
                     except curses.error:
                         pass
 
@@ -512,12 +625,15 @@ class Editor:
 
                 # 3. 當前行右側填滿背景色
                 if is_current_line:
-                    rem_width = text_width - curr_col
-                    if rem_width > 0:
+                    line_start_col = curr_col - self.view_offset_x
+                    if line_start_col < 0:
+                        line_start_col = 0
+                    rem_width = text_width - line_start_col
+                    if rem_width > 0 and line_start_col <= text_width:
                         try:
                             stdscr.addstr(
                                 i,
-                                self.GUTTER_WIDTH + curr_col,
+                                self.GUTTER_WIDTH + line_start_col,
                                 " " * rem_width,
                                 curses.color_pair(4),
                             )
@@ -545,8 +661,9 @@ class Editor:
         curr_line = self.lines[self.cursor_y] if self.cursor_y < len(self.lines) else ""
         cursor_col = str_width(curr_line[: self.cursor_x])
         screen_y = self.cursor_y - self.view_offset_y
-        screen_x = self.GUTTER_WIDTH + cursor_col
-        stdscr.move(screen_y, min(screen_x, max_x - 1))
+        screen_x = self.GUTTER_WIDTH + (cursor_col - self.view_offset_x)
+        screen_x = max(0, min(screen_x, max_x - 1))
+        stdscr.move(screen_y, screen_x)
         stdscr.refresh()
 
     # ==============================================================================
@@ -617,22 +734,55 @@ class Editor:
                 "[1;4B": "alt+shift+down",
                 "[1;4C": "alt+shift+right",
                 "[1;4D": "alt+shift+left",
-                # Page Up / Page Down
-                "[5~": "page_up",
-                "[6~": "page_down",
+                # Ctrl + Arrow (word movement)
+                "[1;5A": "ctrl+up",
+                "[1;5B": "ctrl+down",
+                "[1;5C": "ctrl+right",
+                "[1;5D": "ctrl+left",
+                # Ctrl + Shift + Arrow (word selection)
+                "[1;6A": "shift+ctrl+up",
+                "[1;6B": "shift+ctrl+down",
+                "[1;6C": "shift+ctrl+right",
+                "[1;6D": "shift+ctrl+left",
                 # Home / End
                 "[H": "home",  "[1~": "home",  "[7~": "home",  "OH": "home",
                 "[F": "end",   "[4~": "end",   "[8~": "end",   "OF": "end",
+                # Shift+Home / Shift+End
+                "[1;2H": "shift+home",
+                "[1;2F": "shift+end",
                 # Ctrl+Home / Ctrl+End (common sequences)
                 "[1;5H": "ctrl+home",
                 "[1;5F": "ctrl+end",
                 # Shift+Ctrl+Home / Shift+Ctrl+End
                 "[1;6H": "shift+ctrl+home",
                 "[1;6F": "shift+ctrl+end",
+                # Page Up / Page Down
+                "[5~": "page_up",
+                "[6~": "page_down",
+                "[5;2~": "shift+page_up",
+                "[6;2~": "shift+page_down",
+                # Delete / Shift+Tab (Backtab)
+                "[3~": "delete",
+                "[Z": "shift+tab",
+                # Function keys
+                "OP": "f1",  "OQ": "f2",  "OR": "f3",  "OS": "f4",
+                "[15~": "f5", "[17~": "f6", "[18~": "f7", "[19~": "f8",
+                "[20~": "f9", "[21~": "f10", "[23~": "f11", "[24~": "f12",
                 # Bracketed Paste Mode
                 "[200~": "bracketed_paste",
             }
-            return ansi_map.get(seq_str, "esc")
+            # Shift+Tab 也常以 0x1B 0x09 送出
+            if seq_str == "\t":
+                return "shift+tab"
+            if seq_str in ansi_map:
+                return ansi_map[seq_str]
+            # Alt + 單一字元 (e.g. Alt+b, Alt+f, Alt+d)
+            if len(seq_str) == 1 and (32 <= ord(seq_str) <= 126):
+                return "alt+" + seq_str
+            # Alt + Backspace (0x7f)
+            if seq_str == "\x7f":
+                return "alt+backspace"
+            return "esc"
 
         if key in (10, 13, curses.KEY_ENTER):
             return "enter"
@@ -648,19 +798,33 @@ class Editor:
             curses.KEY_NPAGE: "page_down",
             curses.KEY_HOME: "home",
             curses.KEY_END: "end",
+            curses.KEY_DC: "delete",
+            getattr(curses, "KEY_BTAB", -1): "shift+tab",
             curses.KEY_SLEFT: "shift+left",
             curses.KEY_SRIGHT: "shift+right",
             getattr(curses, "KEY_SUP", -1): "shift+up",
             getattr(curses, "KEY_SR", -1): "shift+up",
             getattr(curses, "KEY_SDOWN", -1): "shift+down",
             getattr(curses, "KEY_SF", -1): "shift+down",
+            getattr(curses, "KEY_SPREVIOUS", -1): "shift+page_up",
+            getattr(curses, "KEY_SNEXT", -1): "shift+page_down",
         }
         if key in curses_key_map:
             return curses_key_map[key]
 
+        # Function keys (KEY_F0 = 265 base)
+        if getattr(curses, "KEY_F0", 265) <= key <= getattr(curses, "KEY_F0", 265) + 63:
+            n = key - getattr(curses, "KEY_F0", 265) + 1
+            if 1 <= n <= 12:
+                return f"f{n}"
+
         if 1 <= key <= 26:
             char_name = chr(key + 96)
             return f"ctrl+{char_name}"
+
+        # Ctrl+/ 通常送 0x1F (US)
+        if key == 31:
+            return "ctrl+/"
 
         return None
 
@@ -686,15 +850,17 @@ class Editor:
                     else:
                         handler(self, stdscr)
 
-        elif 32 <= key <= 126 or key > 127:
-            # Direct character input (fallback)
+        elif 32 <= key <= 126 or 128 <= key <= 255:
+            # Direct character / UTF-8 byte input (fallback).
+            # 排除 curses 特殊鍵 (>= KEY_MIN=257) 以免把 F 鍵等當成文字塞入。
             handler = getattr(actions, "action_type_char", None)
             if callable(handler):
                 handler(self, stdscr, key)
 
-        max_y, _ = stdscr.getmaxyx()
+        max_y, max_x = stdscr.getmaxyx()
         screen_height = max_y - 1
         self._scroll(screen_height)
+        self._scroll_horizontal(max(0, max_x - self.GUTTER_WIDTH))
 
     def _scroll(self, screen_height: int) -> None:
         if self.cursor_y < self.view_offset_y:
@@ -702,10 +868,114 @@ class Editor:
         elif self.cursor_y >= self.view_offset_y + screen_height:
             self.view_offset_y = self.cursor_y - screen_height + 1
 
+    def _scroll_horizontal(self, text_width: int) -> None:
+        """依游標位置自動水平捲動，確保游標在可視範圍內。"""
+        if text_width <= 0:
+            self.view_offset_x = 0
+            return
+        curr_line = (
+            self.lines[self.cursor_y]
+            if 0 <= self.cursor_y < len(self.lines)
+            else ""
+        )
+        cursor_col = str_width(curr_line[: self.cursor_x])
+        if cursor_col < self.view_offset_x:
+            self.view_offset_x = cursor_col
+        elif cursor_col >= self.view_offset_x + text_width:
+            self.view_offset_x = cursor_col - text_width + 1
+        if self.view_offset_x < 0:
+            self.view_offset_x = 0
+
     def _clamp_cursor_x(self) -> None:
         line_len = len(self.lines[self.cursor_y])
         if self.cursor_x > line_len:
             self.cursor_x = line_len
+
+    # ==============================================================================
+    # micro 移植輔助：單字移動 / 註解偵測
+    # ==============================================================================
+
+    @staticmethod
+    def _is_word_char(ch: str) -> bool:
+        return ch.isalnum() or ch == "_"
+
+    def _word_left_pos(self, x: int, line: str) -> int:
+        """回傳向左移動到上一個單字起始處的 x 座標。"""
+        i = x
+        while i > 0 and not self._is_word_char(line[i - 1]):
+            i -= 1
+        j = i
+        while j > 0 and self._is_word_char(line[j - 1]):
+            j -= 1
+        return j
+
+    def _word_right_pos(self, x: int, line: str) -> int:
+        """回傳向右移動到下一個單字起始處的 x 座標。"""
+        n = len(line)
+        i = x
+        while i < n and self._is_word_char(line[i]):
+            i += 1
+        if i < n and not self._is_word_char(line[i]):
+            while i < n and not self._is_word_char(line[i]):
+                i += 1
+        return i
+
+    def _comment_prefix(self) -> str | None:
+        """依副檔名回傳註解符號 (None 表示無法判斷)。"""
+        if not self.filename:
+            return None
+        ext = self.filename.rsplit(".", 1)[-1].lower() if "." in self.filename else ""
+        hash_langs = {
+            "py", "sh", "rb", "pl", "yml", "yaml", "toml", "ini", "cfg",
+            "go", "rs", "js", "ts", "php", "jl", "ex", "exs", "makefile",
+            "dockerfile", "conf", "txt", "md", "lua", "hs", "ml", "r", "ps1",
+            "nim", "zig", "vim", "sql", "properties", "tf", "gradle", "c", "h",
+        }
+        slash_langs = {"c", "h", "cpp", "cc", "cxx", "hpp", "java", "js", "ts",
+                       "go", "rs", "swift", "kt", "kts", "css", "scss", "sql",
+                       "php", "groovy", "dart", "scala", "solidity", "proto", "qml"}
+        hash_set = {"py", "sh", "rb", "pl", "yml", "yaml", "toml", "ini", "cfg",
+                    "jl", "ex", "exs", "lua", "hs", "ml", "r", "ps1", "nim", "zig",
+                    "vim", "conf", "txt", "md", "makefile", "dockerfile", "tf",
+                    "gradle", "properties"}
+        if ext in hash_set:
+            return "# "
+        if ext in slash_langs:
+            return "// "
+        if ext == "lua":
+            return "-- "
+        if ext in ("html", "xml", "svg", "vue", "jsx", "tsx"):
+            return "<!-- "
+        if ext == "" or ext in ("makefile",):
+            return "# "
+        return None
+
+    def search_for(self, query: str, direction: int = 1) -> bool:
+        """從目前游標位置向 direction (+1 向下 / -1 向上) 搜尋 query。
+        找到則移動游標並回傳 True。"""
+        if not query:
+            return False
+        n = len(self.lines)
+        y = self.cursor_y
+        while 0 <= y < n:
+            line = self.lines[y]
+            if direction > 0:
+                start = self.cursor_x if y == self.cursor_y else 0
+                idx = line.find(query, start)
+            else:
+                end = self.cursor_x if y == self.cursor_y else len(line)
+                idx = line.rfind(query, 0, end)
+            if idx != -1:
+                self.cursor_y = y
+                if direction > 0:
+                    self.cursor_x = idx + len(query)
+                else:
+                    self.cursor_x = idx
+                self._clamp_cursor_x()
+                return True
+            y += direction
+        return False
+
 
 
 def _init_curses(stdscr, editor: Editor) -> None:

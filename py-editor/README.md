@@ -76,6 +76,40 @@ The code is split into two clear modules:
 - `editor.py` – core editor logic, UI rendering, and key parsing.
 - `actions.py` – individual action handlers (save, open, copy, etc.).
 
+## ⌨️ micro-Compatible Key Bindings
+
+Hotkeys are aligned with micro's **Linux defaults**
+(`internal/action/defaults_other.go`). Bindings present in both editors behave
+identically (save/open/quit/undo/redo/copy/cut/paste, movement, selection,
+page nav). The following micro Linux-default hotkeys were ported into py-editor:
+
+| Key | Action |
+|-----|--------|
+| **Ctrl+F** | Find |
+| **Ctrl+N / F3** | Find next match |
+| **F4** | Find previous match |
+| **Ctrl+G** | Jump to line |
+| **Ctrl+Y** | Redo |
+| **Ctrl+/** | Toggle comment (per extension) |
+| **Tab / Shift+Tab** | Indent / Outdent selection or line |
+| **Delete** | Forward-delete character |
+| **Home** | Smart start-of-text (toggle) |
+| **End** | End of line |
+| **Shift+Home / Shift+End** | Select to line start / end |
+| **Ctrl+L / Ctrl+J** | Select right / left (fork default) |
+| **Ctrl+C / Ctrl+X** | Copy / cut whole line when no selection |
+| **Esc** | Clear selection & status |
+
+> 註：`Ctrl+E`(刪行), `Ctrl+G`(跳行), `Ctrl+N`(下一個), `Ctrl+L/J`(選取),
+> `Ctrl+B`(分頁) 是此 repo 在 `defaults_other.go` 中的客製化綁定，非原廠　micro
+> 預設；其中分頁相關（`Ctrl+E` 以外的 `Ctrl+B`、`Ctrl+T`、`Alt+,`/`Alt+.`、
+> `Ctrl+PageUp/PageDown`）因 py-editor 無分頁架構而未移植。
+>
+> 未移植（需 micro 較大架構）：多分頁、分割窗格、指令列、語法高亮、外掛、
+> 巨集、多重游標、自動補全、ShellPane。完整對照見 `GAP_ANALYSIS.md`。
+
+## 🛠️ Extending the Editor
+
 To add a new command:
 
 1. Implement a function in `actions.py` (or as a method on `Editor`).
