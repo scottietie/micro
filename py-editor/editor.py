@@ -150,7 +150,6 @@ class Editor:
         self.redo_stack: list[dict] = []
         self.find_query = ""
         self.find_direction = 1
-        self.home_state = 0
         self.ending = "\n"
         self.trailing_newline = False
         self.file_encoding = "utf-8"
@@ -662,8 +661,13 @@ class Editor:
         cursor_col = str_width(curr_line[: self.cursor_x])
         screen_y = self.cursor_y - self.view_offset_y
         screen_x = self.GUTTER_WIDTH + (cursor_col - self.view_offset_x)
+        # 保護：游標永遠限制在畫面內，避免越界 move 崩潰
+        screen_y = max(0, min(screen_y, max_y - 2))
         screen_x = max(0, min(screen_x, max_x - 1))
-        stdscr.move(screen_y, screen_x)
+        try:
+            stdscr.move(screen_y, screen_x)
+        except curses.error:
+            pass
         stdscr.refresh()
 
     # ==============================================================================
@@ -925,12 +929,6 @@ class Editor:
         if not self.filename:
             return None
         ext = self.filename.rsplit(".", 1)[-1].lower() if "." in self.filename else ""
-        hash_langs = {
-            "py", "sh", "rb", "pl", "yml", "yaml", "toml", "ini", "cfg",
-            "go", "rs", "js", "ts", "php", "jl", "ex", "exs", "makefile",
-            "dockerfile", "conf", "txt", "md", "lua", "hs", "ml", "r", "ps1",
-            "nim", "zig", "vim", "sql", "properties", "tf", "gradle", "c", "h",
-        }
         slash_langs = {"c", "h", "cpp", "cc", "cxx", "hpp", "java", "js", "ts",
                        "go", "rs", "swift", "kt", "kts", "css", "scss", "sql",
                        "php", "groovy", "dart", "scala", "solidity", "proto", "qml"}
@@ -946,7 +944,8 @@ class Editor:
             return "-- "
         if ext in ("html", "xml", "svg", "vue", "jsx", "tsx"):
             return "<!-- "
-        if ext == "" or ext in ("makefile",):
+        # 無副檔名的檔案預設當成 hash 註解
+        if ext == "":
             return "# "
         return None
 

@@ -163,17 +163,15 @@ def action_move_down(editor: "Editor", stdscr):
 
 
 def action_move_home(editor: "Editor", stdscr):
-    """StartOfTextToggle – 智慧行首：
-    若游標已在非空白首字處，跳到行首；否則跳到第一個非空白字元。"""
+    """StartOfTextToggle – 智慧行首（無狀態版）：
+    已到首個非空白字元則跳到欄 0，否則跳到首個非空白字元。"""
     editor._clear_selection()
     line = editor.lines[editor.cursor_y]
     first_nonspace = len(line) - len(line.lstrip())
-    if editor.cursor_x == 0 or (editor.cursor_x > first_nonspace and editor.home_state):
+    if editor.cursor_x == first_nonspace:
         editor.cursor_x = 0
-        editor.home_state = 0
     else:
         editor.cursor_x = first_nonspace
-        editor.home_state = 1
 
 
 def action_move_end(editor: "Editor", stdscr):
@@ -316,21 +314,29 @@ def action_column_select_down(editor: "Editor", stdscr):
 
 
 def action_backspace(editor: "Editor", stdscr):
-    """Handle Backspace – delete selection or character."""
-    editor._save_snapshot()
-    if not editor._delete_selection():
-        if editor.cursor_x > 0:
-            line = editor.lines[editor.cursor_y]
-            editor.lines[editor.cursor_y] = (
-                line[: editor.cursor_x - 1] + line[editor.cursor_x :]
-            )
-            editor.cursor_x -= 1
-        elif editor.cursor_y > 0:
-            prev_line = editor.lines[editor.cursor_y - 1]
-            cur_line = editor.lines.pop(editor.cursor_y)
-            editor.cursor_y -= 1
-            editor.cursor_x = len(prev_line)
-            editor.lines[editor.cursor_y] = prev_line + cur_line
+    """Handle Backspace – delete selection or character. 無實質刪除則不 snapshot。"""
+    has_sel = editor._get_selection_range() is not None or (
+        editor.column_selecting and editor.column_anchor is not None
+    )
+    if has_sel:
+        editor._save_snapshot()
+        editor._delete_selection()
+        return
+    if editor.cursor_x > 0:
+        editor._save_snapshot()
+        line = editor.lines[editor.cursor_y]
+        editor.lines[editor.cursor_y] = (
+            line[: editor.cursor_x - 1] + line[editor.cursor_x :]
+        )
+        editor.cursor_x -= 1
+    elif editor.cursor_y > 0:
+        editor._save_snapshot()
+        prev_line = editor.lines[editor.cursor_y - 1]
+        cur_line = editor.lines.pop(editor.cursor_y)
+        editor.cursor_y -= 1
+        editor.cursor_x = len(prev_line)
+        editor.lines[editor.cursor_y] = prev_line + cur_line
+    # 其餘情況為 no-op：不 snapshot，保留 redo
 
 
 def action_type_char(editor: "Editor", stdscr, key: int):
@@ -442,17 +448,24 @@ def action_duplicate(editor: "Editor", stdscr):
 
 
 def action_delete(editor: "Editor", stdscr):
-    """Delete – 前向刪除字元。有選取時刪除選取範圍。"""
-    editor._save_snapshot()
-    if editor._delete_selection():
+    """Delete – 前向刪除字元。有選取時刪除選取範圍。無實質刪除則不 snapshot。"""
+    has_sel = editor._get_selection_range() is not None or (
+        editor.column_selecting and editor.column_anchor is not None
+    )
+    if has_sel:
+        editor._save_snapshot()
+        editor._delete_selection()
         editor.status_message = " 已刪除選取內容！"
         return
     line = editor.lines[editor.cursor_y]
     if editor.cursor_x < len(line):
+        editor._save_snapshot()
         editor.lines[editor.cursor_y] = line[: editor.cursor_x] + line[editor.cursor_x + 1 :]
     elif editor.cursor_y + 1 < len(editor.lines):
+        editor._save_snapshot()
         nxt = editor.lines.pop(editor.cursor_y + 1)
         editor.lines[editor.cursor_y] = line + nxt
+    # 其餘情況為 no-op：不 snapshot，保留 redo
 
 
 def _current_selection_lines(editor: "Editor"):
